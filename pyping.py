@@ -1,137 +1,148 @@
-#!/usr/bin/python
-#--*-- coding: utf-8 --*--
-# This is a simple ping tool based on python. It is a python exercise.
-# author: lusheldon
-import os, sys, socket, struct, select, time
 
-def pyping():
-	count=0		#default value
-	timeout=4
-	interval = 0.5
-	if len(sys.argv)==1:
-		usage()
-	dest = sys.argv[1]
-	try:
-		for i in range(len(sys.argv)):
-			if sys.argv[i] == "-c":
-				count = int(sys.argv[i+1])
-			elif sys.argv[i] == "-t":
-				timeout = float(sys.argv[i+1])
-			elif sys.argv[i] == "-i":
-				interval = float(sys.argv[i+1])
-			else:
-				pass
-	except:
-		usage()
-	"""need more option"""
-	
-	doping(dest, count, timeout, interval)
-	
-def usage():
-	print "Usage:"
-	print "\t./pyping destination [-c count] [-t second]"
-	print "\tExample: pyping 192.168.0.1 -c 4 -t 0.5"
-	print "\tExample: pyping www.google.com -t 2"
-	exit()
+# Library imports
+import os, socket, struct, time
 
-def doping(dest, count, timeout, interval):
+# Module exceptions
+class HostUnreachable(Exception): pass
+class ReplyTimeout(Exception): pass
+class BadReply(Exception): pass
+class HostLookupFailed(Exception): pass
 
-	host = resolve_host(dest)  # get the IP
+def ping(dest, timeout=1):
+    """
+    Blocking ping function
+    :param dest: Destination host string (ip or www)
+    :param timeout: Seconds to wait for a response being raising a Timeout exception
+    :return: 
+    """
 
-	PID = os.getpid()
-	sock = socket.socket(socket.AF_INET, socket.SOCK_RAW, 1) # get the socket, 1 is the protocol number
-	if count == 0:
-		count = 65535 
-	print "Pinging start!"
-	try:
-		for i in xrange(count):
-			time.sleep(interval)
-			packet = packIcmp(host, PID)   # pack the pakcet
-			print "Pinging",dest,"attempts",i+1,
-			sock.sendto(packet, (host,1))          #send the packet
-			result = recvicmp(sock, PID, timeout)    #receive the ICMP reply 
-			if result == 0:
-				print "get reply timeout!"
-			else:
-				print "get reply in ",result, "ms"
-	except KeyboardInterrupt:
-		print "\n\rInterrupted by Keyboard!"
-		exit()
-def recvicmp(sock, PID, timeout):
-	while True:
-		clockStart = time.time()
-		s = select.select([sock], [], [], timeout)
-		if s[0]==[]:
-			return 0
-		clockStop = time.time()
-		received, addr = sock.recvfrom(1024)
-		timeSent = unpackIcmp(received, PID)
-		if timeSent != 0:
-			return clockStop-timeSent
-		if clockStop-clockStart>timeout:
-			return 0
-			
-def unpackIcmp(obj, PID):
-	icmpHeader = obj[20:28]
-	type, code, checksum, packetID, sequence = struct.unpack(
-		"bbHHh", icmpHeader
-	)
-	if type != 8 and packetID == PID:
-		bytesInDouble = struct.calcsize("d")
-		return struct.unpack("d", obj[28:28 + bytesInDouble])[0]
-	else:
-		return 0
-			
-def packIcmp(host, PID):
-	"""not much understand these code"""
-	# Header is type (8), code (8), checksum (16), id (16), sequence (16)
-	my_checksum = 0
-	#request type: 8
-	header = struct.pack("bbHHh", 8, 0, my_checksum, PID, 1)
-	bytesInDouble = struct.calcsize("d")
-	data = (192 - bytesInDouble) * "Q"
-	data = struct.pack("d", time.time()) + data
-	
-	#get the new checksum
-	my_checksum = checksum(header + data)
-	header = struct.pack("bbHHh", 8, 0, socket.htons(my_checksum), PID, 1)
-	return header + data
+    # Open an socket with the ICMP protocol, and set the timeout
+    sock = socket.socket(socket.AF_INET, socket.SOCK_RAW, socket.IPPROTO_ICMP)
+    sock.settimeout(timeout)
 
-def checksum(source_string):
-	"""
-	These codes are copied from samuel/python-ping
-	"""
-	sum = 0
-	countTo = (len(source_string)/2)*2
-	count = 0
-	while count<countTo:
-		thisVal = ord(source_string[count + 1])*256 + ord(source_string[count])
-		sum = sum + thisVal
-		sum = sum & 0xffffffff # Necessary?
-		count = count + 2
-	
-	if countTo<len(source_string):
-		sum = sum + ord(source_string[len(source_string) - 1])
-		sum = sum & 0xffffffff # Necessary?
-	
-	sum = (sum >> 16)  +  (sum & 0xffff)
-	sum = sum + (sum >> 16)
-	answer = ~sum
-	answer = answer & 0xffff
-	
-	# Swap bytes. Bugger me if I know why.
-	answer = answer >> 8 | (answer << 8 & 0xff00)
-	return answer
+    # Attempt to resolve the destination host
+    dest_host = __resolve_host(dest)
 
-def resolve_host(dest):
-	try:
-		if socket.inet_aton(dest):
-			return dest
-	except:
-		try:
-			return socket.gethostbyname(dest)
-		except:
-			print "Host ip resolve failed, pyping exited!"
-			exit()
-if __name__=="__main__":
-	pyping()
+    # Form the ICMP packet, including our process ID
+    packet = __pack_icmp(dest_host, os.getpid())
+
+    # Try to send the ping packet
+    try: sock.sendto(packet, (dest_host, 1))
+
+    # Catch get address info exception, and raise as host lookup failure
+    except socket.gaierror: pass #raise HostLookupFailed
+
+    # Resurrect any other exceptions
+    except: raise
+
+    # Try and receive the reply
+    try: recv_data, addr = sock.recvfrom(1024)
+
+    # Re-raise a socket timeout as a ReplyTimeout
+    except socket.timeout: raise ReplyTimeout
+
+    # Re-raise any other exceptions
+    except: raise
+
+    # Grab the time now (received time)
+    received_time = time.time()
+
+    # Unpack the ICMP packet, and extract the time of launch
+    launch_time = __unpack_icmp(recv_data, os.getpid())
+
+    # Return the time of flight (difference between launch and receive time)
+    return received_time - launch_time
+
+
+def __unpack_icmp(obj, PID):
+
+    # Slice the header out
+    icmp_header = obj[20:28]
+
+    # Unpack the header
+    type, code, checksum, packetID, sequence = struct.unpack("bbHHh", icmp_header)
+
+    # If its not valid a ping reply throw an exception
+    if code != 0 or type != 0 or packetID != PID:
+        raise BadReply
+
+    # Unpack and return the ICMP payload
+    return struct.unpack("d", obj[28:28 + 8])[0]
+
+
+def __pack_icmp(host, PID):
+
+    # Set ICMP header vars
+    type = 8
+    code = 0
+    checksum = 0
+    ident = PID
+    flags = 1
+
+    # Pack the icmp header
+    header = struct.pack("bbHHh", type, code, checksum, ident, flags)
+
+    # Pack the icmp payload
+    data = bytes( (192 - 8) * "Q", "ascii" )
+    data = struct.pack("d", time.time()) + data
+
+    # Calculate the checksum, and repack the header with it
+    checksum = __calc_ip_checksum(header + data)
+    header = struct.pack("bbHHh", type, code, checksum, ident, flags)
+
+    # Return the completed packet
+    return header + data
+
+
+def __calc_ip_checksum(data, size=0):
+
+    # Initialise byte index and checksum to zero
+    cksum = 0
+    byte_index = 0
+
+    # If size is zero (argument omitted), use the length of the data
+    size = size if size > 0 else len(data)
+
+    # The main loop adds up each set of 2 bytes. They are first converted to strings and then concatenated
+    # together, converted to integers, and then added to the sum.
+    while size > 1:
+        cksum += int((str("%02x" % (data[byte_index],)) +
+                      str("%02x" % (data[byte_index + 1],))), 16)
+        size -= 2
+        byte_index += 2
+
+    # This accounts for a situation where the header is odd
+    if size:
+        cksum += data[byte_index]
+
+    # Shift, mask, shift, invert return
+    cksum = (cksum >> 16) + (cksum & 0xffff)
+    cksum += (cksum >> 16)
+    cksum = (~cksum) & 0xFFFF
+    return socket.htons(cksum)
+
+
+def __resolve_host(dest):
+
+    # Try and parse it as an IP address, returning the original string if it doesn't throw an error
+    try: return dest if socket.inet_aton(dest) else ""
+
+    # Catch socket error (not a valid IP address)
+    except socket.error:
+
+        # Try a DNS lookup for the host, returning the result
+        try: return socket.gethostbyname_ex(dest)[0]
+
+        # Catch socket error (not valid ip and host lookup failed)
+        except socket.error:
+            raise HostLookupFailed
+
+        # Catch and re-raise any other exceptions
+        except: raise
+
+    # Catch and re-raise any other exceptions
+    except: raise
+
+if __name__ == "__main__":
+    print(ping("8.8.8.8"))
+    print(ping("www.google.com"))
