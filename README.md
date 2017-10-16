@@ -10,5 +10,11 @@ import pypong
 pypong.ping("www.google.com")
 ```
 
+## API
 ping(host, timeout=1)
 
+## Exceptions
+HostUnreachable
+ReplyTimeout
+BadReply
+HostLookupFailed
