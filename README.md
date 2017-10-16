@@ -1,4 +1,4 @@
-# pyping
+# pypong
 
 * A simple ping library, pure python 3 implementation. Does not required sudo/admin evelation. 
 * This is a simplified and tidied fork of pyping, which works on py3. 
