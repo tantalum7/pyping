@@ -1,6 +1,6 @@
 # pypong
 
-* A simple ping library, pure python 3 implementation. Does not required sudo/admin evelation. 
+* A simple ping library, pure python 3 implementation (Does not pipe commands to os terminal, does not require sudo/admin evelation)
 * This is a simplified and tidied fork of pyping, which works on py3. 
 * Its not designed to work from CLI, like pyping does (I mean we have the real ping for that). Instead its designed to be used as a python module only. 
 * Multiple pings and averaging is left as an excercise to the reader.
