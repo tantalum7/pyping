@@ -12,7 +12,7 @@ def ping(dest, timeout=1):
     """
     Blocking ping function
     :param dest: Destination host string (ip or www)
-    :param timeout: Seconds to wait for a response being raising a Timeout exception
+    :param timeout: Seconds to wait for a response before raising a Timeout exception
     :return: 
     """
 
@@ -30,7 +30,7 @@ def ping(dest, timeout=1):
     try: sock.sendto(packet, (dest_host, 1))
 
     # Catch get address info exception, and raise as host lookup failure
-    except socket.gaierror: pass #raise HostLookupFailed
+    except socket.gaierror: raise HostLookupFailed
 
     # Resurrect any other exceptions
     except: raise
