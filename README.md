@@ -14,7 +14,9 @@ pypong.ping("www.google.com")
 ping(host, timeout=1)
 
 ## Exceptions
+```
 HostUnreachable
 ReplyTimeout
 BadReply
 HostLookupFailed
+```
